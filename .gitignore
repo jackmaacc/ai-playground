@@ -1,0 +1,11 @@
+# Third-party tool installs (their own repos, huge, not ours to track)
+chat-llm/
+image-gen/
+
+# TLS interception workaround artifacts, not project content
+*.pem
+*.crt
+
+# Python
+__pycache__/
+*.pyc
