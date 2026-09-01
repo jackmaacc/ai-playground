@@ -9,3 +9,9 @@ image-gen/
 # Python
 __pycache__/
 *.pyc
+
+# Runtime logs from launching tools
+*_log.txt
+
+# User's own separate experiment/repo, not part of this project
+AiFun/

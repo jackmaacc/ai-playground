@@ -102,7 +102,7 @@ def menu():
     print("4) Quit")
 
 
-if __name__ == "__main__":
+def run():
     while True:
         menu()
         choice = input("choose (1-4): ").strip()
@@ -113,6 +113,10 @@ if __name__ == "__main__":
         elif choice == "3":
             explain_model()
         elif choice == "4":
-            break
+            return
         else:
             print("Not a valid option, try again.")
+
+
+if __name__ == "__main__":
+    run()

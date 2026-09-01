@@ -47,7 +47,7 @@ def gradient_descent(start_x, learning_rate, steps):
     return x
 
 
-if __name__ == "__main__":
+def demo():
     print("=== Run 1: a well-behaved learning rate ===")
     gradient_descent(start_x=0.0, learning_rate=0.1, steps=15)
 
@@ -56,3 +56,42 @@ if __name__ == "__main__":
 
     print("\n=== Run 3: learning rate too BIG (watch it overshoot / blow up) ===")
     gradient_descent(start_x=0.0, learning_rate=1.05, steps=15)
+
+
+def run():
+    """Interactive menu: run the canned demo or try your own numbers."""
+    print("\n" + "=" * 50)
+    print("Gradient descent: minimize f(x) = (x-3)^2")
+    print("=" * 50)
+    while True:
+        print("\n1) Run the canned demo (good / too small / too big learning rates)")
+        print("2) Run with your own start_x, learning rate, steps")
+        print("3) Back")
+        choice = input("choose (1-3): ").strip()
+        if choice == "1":
+            demo()
+        elif choice == "2":
+            start_x = float(input("start_x (try 0): ") or 0)
+            learning_rate = float(input("learning rate (try 0.1): ") or 0.1)
+            steps = int(input("steps (try 15): ") or 15)
+            final_x = gradient_descent(start_x, learning_rate, steps)
+
+            distance = abs(final_x - 3)
+            if distance != distance:  # NaN check
+                print("\nThat diverged to NaN - the learning rate was too big and the")
+                print("update blew up. Try something smaller.")
+            elif distance > 0.5:
+                print(f"\nStill {distance:.3f} away from the true minimum (x=3) after")
+                print(f"{steps} steps. Either the learning rate is too small to get")
+                print("there in time, or too big and it's oscillating around the")
+                print("minimum instead of settling. Try adjusting it.")
+            else:
+                print(f"\nConverged: within {distance:.4f} of the true minimum (x=3).")
+        elif choice == "3":
+            return
+        else:
+            print("Not a valid option, try again.")
+
+
+if __name__ == "__main__":
+    demo()

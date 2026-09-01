@@ -11,10 +11,8 @@ import numpy as np
 
 from phase1_linear_regression import hours, scores, predict, train
 
-history, final_m, final_b = train(learning_rate=0.01, steps=500)
 
-
-def plot_fit():
+def plot_fit(history):
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.scatter(hours, scores, color="black", zorder=3, label="real data (hours, score)")
 
@@ -37,7 +35,7 @@ def plot_fit():
     print("saved linreg_fit.png")
 
 
-def plot_loss():
+def plot_loss(history):
     steps = [h[0] for h in history]
     losses = [h[3] for h in history]
 
@@ -51,6 +49,11 @@ def plot_loss():
     print("saved linreg_loss.png")
 
 
+def run():
+    history, final_m, final_b = train(learning_rate=0.01, steps=500)
+    plot_fit(history)
+    plot_loss(history)
+
+
 if __name__ == "__main__":
-    plot_fit()
-    plot_loss()
+    run()

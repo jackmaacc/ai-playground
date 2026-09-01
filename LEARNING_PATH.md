@@ -2,6 +2,8 @@
 
 Goal: work in the AI industry as an ML/AI engineer. Project-driven — each item gets learned by building it, mostly on this local AI stack (`chat-llm/`, `image-gen/`).
 
+Run `python learning/main.py` for one interactive menu covering everything built so far (gradient descent, linear regression, and the LLM lessons/playground against the real Qwen model). Each piece also runs standalone if you only want one topic.
+
 Current status: **Phase 0, just starting.**
 
 ## Phase 0 — Foundations (now, pre-calculus)

@@ -154,13 +154,19 @@ def menu():
     print("5) Quit")
 
 
-if __name__ == "__main__":
+def api_reachable():
     try:
         requests.get("http://127.0.0.1:5000/v1/models", timeout=5)
+        return True
     except requests.exceptions.ConnectionError:
+        return False
+
+
+def run():
+    if not api_reachable():
         print("Can't reach the model API at http://127.0.0.1:5000 - is")
         print("text-generation-webui running? (start_windows.bat in chat-llm/)")
-        raise SystemExit(1)
+        return
 
     while True:
         menu()
@@ -174,6 +180,14 @@ if __name__ == "__main__":
         elif choice == "4":
             do_explain()
         elif choice == "5":
-            break
+            return
         else:
             print("Not a valid option, try again.")
+
+
+if __name__ == "__main__":
+    if not api_reachable():
+        print("Can't reach the model API at http://127.0.0.1:5000 - is")
+        print("text-generation-webui running? (start_windows.bat in chat-llm/)")
+        raise SystemExit(1)
+    run()

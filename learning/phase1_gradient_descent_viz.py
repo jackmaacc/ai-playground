@@ -94,7 +94,7 @@ def plot_convergence(all_histories):
     print(f"saved {out}")
 
 
-if __name__ == "__main__":
+def run():
     all_histories = []
     for label, start_x, lr, steps in SCENARIOS:
         history = gradient_descent_history(start_x, lr, steps)
@@ -102,3 +102,7 @@ if __name__ == "__main__":
 
     plot_paths(all_histories)
     plot_convergence(all_histories)
+
+
+if __name__ == "__main__":
+    run()
