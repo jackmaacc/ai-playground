@@ -19,20 +19,16 @@ directly if you only want that one thing.
 Run with: python main.py
 """
 
-from pathlib import Path
-
+import config
 import console
 
 console.use_utf8_output()
 
+import manager
 import model_playground
 import phase1_gradient_descent
 import phase1_interactive
 import phase1_overfitting
-
-# The web UI needs gradio, which lives in text-generation-webui's
-# environment rather than the plain system Python this usually runs on.
-WEBUI_PYTHON = Path(r"C:\Users\jackm\ai-playground\chat-llm\installer_files\env\python.exe")
 
 
 def generate_gradient_descent_plots():
@@ -95,15 +91,24 @@ def run_llm_menu():
 
 def launch_web_ui():
     """Start the browser version, if this interpreter can run it."""
-    try:
-        import webui
-    except ImportError:
-        # Almost always a missing gradio: the system Python doesn't have
-        # it, text-generation-webui's environment does.
+    # Check for gradio without importing webui, which would build the
+    # whole interface just to find out whether it could.
+    import importlib.util
+
+    if importlib.util.find_spec("gradio") is None:
+        # The plain system Python usually lacks gradio; the bundled apps
+        # ship it. config finds one rather than hardcoding a path.
+        interpreter = config.gradio_python()
         print("\nThe web UI needs gradio, which isn't installed for this Python.")
-        print("Run it with text-generation-webui's interpreter instead:\n")
-        print(f'  & "{WEBUI_PYTHON}" webui.py')
+        if interpreter:
+            print("Run it with an interpreter that has it:\n")
+            print(f'  & "{interpreter}" "{config.LEARNING_DIR / "webui.py"}"')
+        else:
+            print("No interpreter with gradio was found in this repository.")
+        print("\nOr use the app manager (option above), which launches it for you.")
         return
+
+    import webui
 
     print("\nStarting the web UI - press Ctrl+C here to stop it.")
     webui.launch()
@@ -118,6 +123,7 @@ def main():
             ("Overfitting: fitting vs learning  (Phase 1)", phase1_overfitting.run),
             ("Generate visualizations (PNGs)    (Phase 1)", run_visualizations),
             ("LLM lessons / playground          (Phase 0/2)", run_llm_menu),
+            ("App manager - start/stop chat-llm, image-gen, web UI", manager.run),
             ("Open the web UI in a browser", launch_web_ui),
         ],
         back_label="Quit",
