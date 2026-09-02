@@ -33,9 +33,19 @@ from model_playground import (
 from phase1_gradient_descent import MINIMUM, f
 from phase1_gradient_descent import diagnose as diagnose_descent
 from phase1_gradient_descent import gradient_descent
-from phase1_linear_regression import closed_form_solution, hours, predict, scores
+from phase1_linear_regression import closed_form_solution, predict
 from phase1_linear_regression import diagnose as diagnose_regression
-from phase1_linear_regression import train, true_b, true_m
+from phase1_linear_regression import (
+    test_hours,
+    test_scores,
+    train,
+    train_hours,
+    train_scores,
+    true_b,
+    true_m,
+)
+from phase1_overfitting import best_result, predict_polynomial, sweep
+from phase1_overfitting import diagnose as diagnose_overfitting
 
 PORT = 7862
 
@@ -89,13 +99,33 @@ def lesson_concept(choice):
     return f"### {lesson['title']}\n\n{lesson['concept']}\n\n**Prompt:** \"{lesson['prompt']}\""
 
 
-def run_lesson_experiment(choice):
+def run_lesson_experiment(choice, samples):
+    """Run each setting several times, so the comparison has a noise floor.
+
+    One sample per setting cannot distinguish a real effect from the
+    sampler's own randomness - hence the repeats, and hence column A
+    doubling as the control.
+    """
     lesson = _lesson_for(choice)
+    samples = max(2, int(samples))
     label_a = ", ".join(f"{k}={v}" for k, v in lesson["setting_a"].items())
     label_b = ", ".join(f"{k}={v}" for k, v in lesson["setting_b"].items())
-    reply_a = generate(lesson["prompt"], lesson["setting_a"])
-    reply_b = generate(lesson["prompt"], lesson["setting_b"])
-    return f"**A** ({label_a})\n\n{reply_a}", f"**B** ({label_b})\n\n{reply_b}"
+
+    replies_a = [generate(lesson["prompt"], lesson["setting_a"]) for _ in range(samples)]
+    replies_b = [generate(lesson["prompt"], lesson["setting_b"]) for _ in range(samples)]
+
+    def block(title, note, replies):
+        runs = "\n\n".join(f"**run {i}**\n\n{r}" for i, r in enumerate(replies, start=1))
+        return f"### {title}\n\n*{note}*\n\n{runs}"
+
+    return (
+        block(f"A - {label_a}",
+              "These runs differ from each other with NOTHING changed. "
+              "That spread is the noise floor.", replies_a),
+        block(f"B - {label_b}",
+              "Only meaningful if B differs from A by more than A differs "
+              "from itself.", replies_b),
+    )
 
 
 def reveal_lesson(choice):
@@ -136,7 +166,9 @@ def run_linear_regression(learning_rate, steps):
     history, m, b = train(learning_rate, int(steps), verbose=False)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
-    ax1.scatter(hours, scores, color="black", zorder=3, label="real data")
+    ax1.scatter(train_hours, train_scores, color="black", zorder=3, label="trained on")
+    ax1.scatter(test_hours, test_scores, color="darkorange", marker="s", s=55, zorder=4,
+                edgecolor="black", linewidth=0.5, label="held out")
     xs = np.linspace(0, 10, 100)
     ax1.plot(xs, predict(xs, m, b), color="crimson", linewidth=2, label="learned fit")
 
@@ -145,22 +177,62 @@ def run_linear_regression(learning_rate, steps):
              linewidth=1.5, label="best possible")
     ax1.set_xlabel("hours studied")
     ax1.set_ylabel("exam score")
-    ax1.legend()
+    ax1.legend(fontsize=8)
 
-    losses = [row[3] for row in history]
-    ax2.plot(range(len(losses)), losses, color="crimson")
+    ax2.plot([row.step for row in history], [row.loss for row in history],
+             color="crimson", label="training loss")
+    ax2.plot([row.step for row in history], [row.test_loss for row in history],
+             color="darkorange", linestyle="--", label="test loss")
     ax2.set_xlabel("step")
     ax2.set_ylabel("loss (MSE)")
+    ax2.legend(fontsize=8)
     fig.tight_layout()
 
+    final = history[-1]
     summary = (
         f"Learned:  score = {m:.3f} * hours + {b:.3f}\n"
         f"Best possible: score = {best_m:.3f} * hours + {best_b:.3f}\n"
         f"Truth:    score = {true_m} * hours + {true_b}\n"
-        f"Final loss: {losses[-1]:.3f} (started at {losses[0]:.1f})\n\n"
+        f"Train loss: {final.loss:.3f}   Test loss: {final.test_loss:.3f}\n\n"
         f"{diagnose_regression(history)}"
     )
     return fig, summary
+
+
+# ---------------------------------------------------------------- Overfitting tab
+
+def run_overfitting(max_degree):
+    results = sweep(int(max_degree))
+    best = best_result(results)
+    degrees = [r.degree for r in results]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
+    ax1.plot(degrees, [r.train_mse for r in results], "o-", color="crimson",
+             label="training error")
+    ax1.plot(degrees, [r.test_mse for r in results], "s--", color="darkorange",
+             label="test error")
+    ax1.axvline(best.degree, color="green", linestyle=":", label=f"best (degree {best.degree})")
+    ax1.set_yscale("log")
+    ax1.set_xlabel("polynomial degree (model freedom)")
+    ax1.set_ylabel("MSE (log scale)")
+    ax1.legend(fontsize=8)
+
+    ax2.scatter(train_hours, train_scores, color="black", zorder=3, label="trained on")
+    ax2.scatter(test_hours, test_scores, color="darkorange", marker="s", s=55, zorder=4,
+                edgecolor="black", linewidth=0.5, label="held out")
+    xs = np.linspace(float(np.min(train_hours)), float(np.max(train_hours)), 400)
+    for color, degree in zip(["tab:blue", "green", "crimson"],
+                             sorted({1, best.degree, results[-1].degree})):
+        row = next(r for r in results if r.degree == degree)
+        ax2.plot(xs, predict_polynomial(xs, row.coeffs), color=color, linewidth=2,
+                 label=f"degree {degree}")
+    ax2.set_ylim(min(0, float(np.min(train_scores)) - 10), float(np.max(train_scores)) + 15)
+    ax2.set_xlabel("hours studied")
+    ax2.set_ylabel("exam score")
+    ax2.legend(fontsize=8)
+    fig.tight_layout()
+
+    return fig, diagnose_overfitting(results)
 
 
 # ---------------------------------------------------------------- Build the app
@@ -209,12 +281,17 @@ with gr.Blocks(title="AI Learning Path") as demo:
         lesson_pick = gr.Dropdown(LESSON_TITLES, value=LESSON_TITLES[0], label="Lesson")
         concept_md = gr.Markdown(lesson_concept(LESSON_TITLES[0]))
         lesson_pick.change(lesson_concept, lesson_pick, concept_md)
-        gr.Markdown("_Predict what will differ before you press Reveal - being wrong is the useful bit._")
+        gr.Markdown(
+            "_Each setting runs several times on purpose. Compare A's runs against "
+            "**each other** first — that is how much varies when nothing changed. "
+            "Only a difference bigger than that spread means anything._"
+        )
+        lesson_samples = gr.Slider(2, 5, value=3, step=1, label="runs per setting")
         run_btn = gr.Button("Run the experiment", variant="primary")
         with gr.Row():
             lesson_a = gr.Markdown()
             lesson_b = gr.Markdown()
-        run_btn.click(run_lesson_experiment, lesson_pick, [lesson_a, lesson_b])
+        run_btn.click(run_lesson_experiment, [lesson_pick, lesson_samples], [lesson_a, lesson_b])
         reveal_btn = gr.Button("Reveal explanation")
         reveal_md = gr.Markdown()
         reveal_btn.click(reveal_lesson, lesson_pick, reveal_md)
@@ -230,8 +307,23 @@ with gr.Blocks(title="AI Learning Path") as demo:
         gd_summary = gr.Textbox(label="Result", lines=4)
         gd_btn.click(run_gradient_descent, [gd_start, gd_lr, gd_steps], [gd_plot, gd_summary])
 
+    with gr.Tab("Overfitting"):
+        gr.Markdown(
+            "More model freedom always fits the training data better - and past a "
+            "point, works worse on everyone else. Watch the two curves come apart."
+        )
+        of_degree = gr.Slider(2, 15, value=12, step=1, label="highest polynomial degree to try")
+        of_btn = gr.Button("Run the sweep", variant="primary")
+        of_plot = gr.Plot()
+        of_summary = gr.Textbox(label="Result", lines=10)
+        of_btn.click(run_overfitting, of_degree, [of_plot, of_summary])
+
     with gr.Tab("Linear Regression (toy)"):
-        gr.Markdown("Fitting score = m*hours + b to real-shaped data with gradient descent.")
+        gr.Markdown(
+            "Fitting score = m*hours + b to real-shaped data with gradient descent. "
+            "Black points are what it trains on; orange squares are held back and "
+            "never influence a weight."
+        )
         with gr.Row():
             lrg_lr = gr.Slider(0.0001, 0.05, value=0.01, step=0.0001, label="learning_rate")
             lrg_steps = gr.Slider(10, 2000, value=500, step=10, label="steps")

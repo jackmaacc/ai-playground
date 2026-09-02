@@ -28,6 +28,7 @@ console.use_utf8_output()
 import model_playground
 import phase1_gradient_descent
 import phase1_interactive
+import phase1_overfitting
 
 # The web UI needs gradio, which lives in text-generation-webui's
 # environment rather than the plain system Python this usually runs on.
@@ -48,9 +49,14 @@ def generate_linear_regression_plots():
     phase1_linear_regression_viz.run()
 
 
+def generate_overfitting_plots():
+    phase1_overfitting.make_plots()
+
+
 def generate_all_plots():
     generate_gradient_descent_plots()
     generate_linear_regression_plots()
+    generate_overfitting_plots()
 
 
 def run_visualizations():
@@ -59,7 +65,8 @@ def run_visualizations():
         [
             ("Gradient descent paths + convergence", generate_gradient_descent_plots),
             ("Linear regression fit + loss curve", generate_linear_regression_plots),
-            ("Both", generate_all_plots),
+            ("Overfitting U-curve + the fits themselves", generate_overfitting_plots),
+            ("All of them", generate_all_plots),
         ],
     )
 
@@ -108,6 +115,7 @@ def main():
         [
             ("Gradient descent basics           (Phase 0/1 foundations)", phase1_gradient_descent.run),
             ("Linear regression trainer         (Phase 1 project)", phase1_interactive.run),
+            ("Overfitting: fitting vs learning  (Phase 1)", phase1_overfitting.run),
             ("Generate visualizations (PNGs)    (Phase 1)", run_visualizations),
             ("LLM lessons / playground          (Phase 0/2)", run_llm_menu),
             ("Open the web UI in a browser", launch_web_ui),

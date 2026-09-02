@@ -13,12 +13,32 @@ import console
 from phase1_linear_regression import (
     closed_form_solution,
     diagnose,
+    evaluate,
+    generalization_verdict,
     mse_loss,
     predict,
+    test_hours,
+    test_scores,
     train,
+    train_hours,
+    train_scores,
     true_b,
     true_m,
 )
+
+
+def print_metrics(m, b):
+    """Score the model on both splits, side by side.
+
+    RMSE is the one to read: it's in exam points, so "3.8" means the
+    model is typically about four points out.
+    """
+    train_metrics = evaluate(m, b, train_hours, train_scores)
+    test_metrics = evaluate(m, b, test_hours, test_scores)
+    print(f"\n{'':<18}{'trained on':>12}{'never seen':>12}")
+    print(f"{'students':<18}{len(train_hours):>12}{len(test_hours):>12}")
+    for key, label in (("rmse", "RMSE (points)"), ("mse", "MSE"), ("r2", "R2")):
+        print(f"{label:<18}{train_metrics[key]:>12.3f}{test_metrics[key]:>12.3f}")
 
 # Model state, lives for the duration of this interactive session.
 state = {"m": 0.0, "b": 0.0, "trained": False, "history": []}
@@ -33,9 +53,10 @@ def train_model():
 
     state.update({"m": m, "b": b, "trained": True, "history": history})
 
-    first_loss, final_loss = history[0][3], history[-1][3]
-    print(f"\nDone. Final loss: {final_loss:.3f}  (started at {first_loss:.3f})")
+    first_loss, final_loss = history[0].loss, history[-1].loss
+    print(f"\nDone. Final training loss: {final_loss:.3f}  (started at {first_loss:.3f})")
     print(f"Learned:  score = {m:.3f} * hours + {b:.3f}")
+    print_metrics(m, b)
 
     # Teach, don't just report: tell them what actually happened based on
     # the real numbers this run produced, not a canned message.
@@ -53,9 +74,10 @@ def compare_learning_rates():
     print()
     for label, learning_rate in (("A", lr_a), ("B", lr_b)):
         history, m, b = train(learning_rate, steps, verbose=False)
-        final_loss = history[-1][3]
+        row = history[-1]
         print(f"=== {label}: lr={learning_rate} ===")
-        print(f"  score = {m:.3f} * hours + {b:.3f}   final loss {final_loss:.3f}")
+        print(f"  score = {m:.3f} * hours + {b:.3f}")
+        print(f"  train loss {row.loss:.3f}   test loss {row.test_loss:.3f}")
         print(f"  {diagnose(history)}\n")
 
     print(
@@ -118,9 +140,21 @@ def explain_model():
     print("models like this one. There's no closed form for Qwen's billions of")
     print("weights, so the slow, general method is the one that scales.\n")
 
-    first, last = state["history"][0][3], state["history"][-1][3]
+    first, last = state["history"][0].loss, state["history"][-1].loss
     print(f"Loss went from {first:.1f} to {last:.1f} over training - each step, gradient")
-    print(f"descent nudged m and b in whichever direction reduced that error.")
+    print(f"descent nudged m and b in whichever direction reduced that error.\n")
+
+    # The part that actually decides whether a model is any good.
+    print("--- Does it work on students it never saw? ---")
+    print_metrics(m, b)
+    print(f"\n{generalization_verdict(mse_loss(m, b), mse_loss(m, b, test_hours, test_scores))}\n")
+    print(f"Every number in the 'trained on' column is measured on the "
+          f"{len(train_hours)} students")
+    print(f"this model already learned from, so it is flattering by construction.")
+    print(f"The {len(test_hours)} students in the other column were held back before training")
+    print("started and never influenced a single weight update - which is the")
+    print("only reason that column means anything. Judging a model on its own")
+    print("training data is the most common way to fool yourself in ML.")
 
 
 def run():

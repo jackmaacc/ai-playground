@@ -18,6 +18,27 @@ from model_playground import ModelError, OFFLINE_HINT, api_reachable, call_model
 
 console.use_utf8_output()
 
+# How many times to run each setting. Anything less than 2 and you cannot
+# tell a real effect from the sampler's own randomness; much more than 3
+# and the lessons get slow on a local model.
+SAMPLES = 3
+
+
+def call_model_samples(prompt, settings, n=SAMPLES):
+    """Run the SAME prompt at the SAME settings n times.
+
+    Generating once per setting is the classic way to fool yourself here:
+    the model samples at random, so two runs of an identical setting can
+    differ as much as two different settings do. Repeating gives you the
+    spread, which is the only thing that makes a comparison meaningful.
+    """
+    return [call_model(prompt, settings)[0] for _ in range(n)]
+
+
+def show_samples(label, replies):
+    for index, reply in enumerate(replies, start=1):
+        print(f"\n--- {label}, run {index} of {len(replies)} ---\n{reply}")
+
 
 LESSONS = [
     dict(
@@ -109,29 +130,49 @@ def run_lesson(lesson):
     print("#" * 60)
     print(f"\n{lesson['concept']}")
 
+    samples = lesson.get("samples", SAMPLES)
+    label_a = ", ".join(f"{k}={v}" for k, v in lesson["setting_a"].items())
+    label_b = ", ".join(f"{k}={v}" for k, v in lesson["setting_b"].items())
+
     console.pause("[press Enter to run the experiment]")
     print(f"\nPrompt: \"{lesson['prompt']}\"\n")
 
     try:
-        print("Generating response A...")
-        reply_a, _ = call_model(lesson["prompt"], lesson["setting_a"])
-        print("Generating response B...")
-        reply_b, _ = call_model(lesson["prompt"], lesson["setting_b"])
+        print(f"Generating {samples} responses at setting A...")
+        replies_a = call_model_samples(lesson["prompt"], lesson["setting_a"], samples)
+        print(f"Generating {samples} responses at setting B...")
+        replies_b = call_model_samples(lesson["prompt"], lesson["setting_b"], samples)
     except ModelError as error:
         print(f"\n{error}")
         return
 
-    label_a = ", ".join(f"{k}={v}" for k, v in lesson["setting_a"].items())
-    label_b = ", ".join(f"{k}={v}" for k, v in lesson["setting_b"].items())
+    # THE CONTROL, first and on its own. Before comparing two settings you
+    # have to know how much output moves when NOTHING changes - otherwise
+    # you will confidently explain a difference that was only luck.
+    print("\n" + "=" * 60)
+    print("CONTROL: two runs at the SAME setting, nothing changed between them")
+    print("=" * 60)
+    print(f"(both at {label_a})")
+    show_samples("control", replies_a[:2])
 
-    print(f"\n=== A ({label_a}) ===\n{reply_a}")
-    print(f"\n=== B ({label_b}) ===\n{reply_b}")
+    console.ask_text(
+        "\nHow different are those two, given that NOTHING changed? "
+        "That spread is\nthe noise floor - a difference below it means "
+        "nothing. (press Enter)\n> ",
+        allow_empty=True,
+    )
+
+    print("\n" + "=" * 60)
+    print(f"NOW THE COMPARISON: {samples} runs of each setting")
+    print("=" * 60)
+    show_samples(f"A ({label_a})", replies_a)
+    show_samples(f"B ({label_b})", replies_b)
 
     # Answering before reading the explanation is the point of the
     # exercise - it forces a prediction you can actually be wrong about.
     console.ask_text(
-        "\nWhat do YOU notice is different between A and B? "
-        "(type anything, press Enter)\n> ",
+        "\nIs the A-vs-B difference BIGGER than the control spread you just saw?"
+        "\nWhat differs? (type anything, press Enter)\n> ",
         allow_empty=True,
     )
 

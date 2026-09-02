@@ -3,7 +3,7 @@ Visualization for phase1_linear_regression.py.
 
 Two PNGs, written next to this script:
   - linreg_fit.png    the data points + how the line evolves during training
-  - linreg_loss.png   loss going down over training steps
+  - linreg_loss.png   training loss AND held-out test loss over time
 """
 
 from pathlib import Path
@@ -13,7 +13,15 @@ matplotlib.use("Agg")  # writing files, not opening windows
 import matplotlib.pyplot as plt
 import numpy as np
 
-from phase1_linear_regression import closed_form_solution, hours, predict, scores, train
+from phase1_linear_regression import (
+    closed_form_solution,
+    predict,
+    test_hours,
+    test_scores,
+    train,
+    train_hours,
+    train_scores,
+)
 
 OUT_DIR = Path(__file__).parent
 
@@ -27,7 +35,11 @@ def save(fig, filename):
 
 def plot_fit(history):
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.scatter(hours, scores, color="black", zorder=3, label="real data (hours, score)")
+    # Draw the two splits differently: the model only ever saw the black
+    # ones. The orange ones are the exam it hasn't sat yet.
+    ax.scatter(train_hours, train_scores, color="black", zorder=3, label="trained on")
+    ax.scatter(test_hours, test_scores, color="darkorange", marker="s", s=60,
+               zorder=4, edgecolor="black", linewidth=0.5, label="held out (never seen)")
 
     xs = np.linspace(0, 10, 100)
     # Show a few snapshots of the line as training progresses, fading in
@@ -36,9 +48,9 @@ def plot_fit(history):
     snapshot_steps = sorted({min(step, len(history) - 1) for step in (0, 10, 50, 150, len(history) - 1)})
     colors = plt.cm.Blues(np.linspace(0.35, 1.0, len(snapshot_steps)))
     for color, step_idx in zip(colors, snapshot_steps):
-        _, m, b, _ = history[step_idx]
-        ax.plot(xs, predict(xs, m, b), color=color, linewidth=2,
-                label=f"step {step_idx}: m={m:.2f}, b={b:.2f}")
+        row = history[step_idx]
+        ax.plot(xs, predict(xs, row.m, row.b), color=color, linewidth=2,
+                label=f"step {step_idx}: m={row.m:.2f}, b={row.b:.2f}")
 
     # Where it was always heading: the exact least-squares line. Training
     # is converging on this, it can never beat it.
@@ -55,14 +67,17 @@ def plot_fit(history):
 
 
 def plot_loss(history):
-    steps = [row[0] for row in history]
-    losses = [row[3] for row in history]
+    steps = [row.step for row in history]
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.plot(steps, losses, color="crimson")
+    ax.plot(steps, [row.loss for row in history], color="crimson",
+            label="training loss (what training minimises)")
+    ax.plot(steps, [row.test_loss for row in history], color="darkorange",
+            linestyle="--", label="test loss (what we actually care about)")
     ax.set_xlabel("training step")
     ax.set_ylabel("loss (mean squared error)")
     ax.set_title("Loss going down = the line getting less wrong")
+    ax.legend(fontsize=8)
     fig.tight_layout()
     save(fig, "linreg_loss.png")
 
