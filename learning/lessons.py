@@ -7,40 +7,16 @@ Each lesson: a short recap of the concept, a real prompt run at two
 settings on your actual model, a question for YOU to answer first, then
 an explanation of what's actually happening under the hood.
 
+The LESSONS list is also what drives the "Guided Lessons" tab in
+webui.py, so a lesson added here shows up in both places.
+
 Run with: python lessons.py
 """
 
-import sys
+import console
+from model_playground import ModelError, OFFLINE_HINT, api_reachable, call_model
 
-from model_playground import call_model
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-
-def run_lesson(number, title, concept, prompt, setting_a, setting_b, reveal):
-    print("\n" + "#" * 60)
-    print(f"# Lesson {number}: {title}")
-    print("#" * 60)
-    print(f"\n{concept}")
-
-    input("\n[press Enter to run the experiment]")
-    print(f"\nPrompt: \"{prompt}\"\n")
-
-    print("Generating response A...")
-    reply_a, used_a = call_model(prompt, setting_a)
-    print("Generating response B...")
-    reply_b, used_b = call_model(prompt, setting_b)
-
-    label_a = ", ".join(f"{k}={v}" for k, v in setting_a.items())
-    label_b = ", ".join(f"{k}={v}" for k, v in setting_b.items())
-
-    print(f"\n=== A ({label_a}) ===\n{reply_a}")
-    print(f"\n=== B ({label_b}) ===\n{reply_b}")
-
-    input("\nWhat do YOU notice is different between A and B? (type anything, press Enter)\n> ")
-
-    print(f"\n--- What's actually happening ---\n{reveal}")
-    input("\n[press Enter to continue to the next lesson]")
+console.use_utf8_output()
 
 
 LESSONS = [
@@ -127,23 +103,80 @@ LESSONS = [
 ]
 
 
-def main():
-    print("Guided lessons: understanding your local model's sampling settings")
-    print(f"({len(LESSONS)} lessons, using your actual running Qwen model)")
+def run_lesson(lesson):
+    print("\n" + "#" * 60)
+    print(f"# Lesson {lesson['number']}: {lesson['title']}")
+    print("#" * 60)
+    print(f"\n{lesson['concept']}")
 
+    console.pause("[press Enter to run the experiment]")
+    print(f"\nPrompt: \"{lesson['prompt']}\"\n")
+
+    try:
+        print("Generating response A...")
+        reply_a, _ = call_model(lesson["prompt"], lesson["setting_a"])
+        print("Generating response B...")
+        reply_b, _ = call_model(lesson["prompt"], lesson["setting_b"])
+    except ModelError as error:
+        print(f"\n{error}")
+        return
+
+    label_a = ", ".join(f"{k}={v}" for k, v in lesson["setting_a"].items())
+    label_b = ", ".join(f"{k}={v}" for k, v in lesson["setting_b"].items())
+
+    print(f"\n=== A ({label_a}) ===\n{reply_a}")
+    print(f"\n=== B ({label_b}) ===\n{reply_b}")
+
+    # Answering before reading the explanation is the point of the
+    # exercise - it forces a prediction you can actually be wrong about.
+    console.ask_text(
+        "\nWhat do YOU notice is different between A and B? "
+        "(type anything, press Enter)\n> ",
+        allow_empty=True,
+    )
+
+    print(f"\n--- What's actually happening ---\n{lesson['reveal']}")
+
+
+def run_all():
     for lesson in LESSONS:
-        run_lesson(**lesson)
+        run_lesson(lesson)
+        console.pause("[press Enter to continue]")
 
     print("\n" + "=" * 60)
     print("Done with all lessons.")
     print("=" * 60)
     print(
-        "\nNext: open model_playground.py for free-form exploration - now with "
-        "the vocabulary and intuition to predict what a setting will do before "
-        "you run it, instead of guessing. Also worth checking off in "
-        "LEARNING_PATH.md (Phase 0)."
+        "\nNext: the free-play playground - now with the vocabulary and "
+        "intuition to predict what a setting will do before you run it, "
+        "instead of guessing. Also worth checking off in LEARNING_PATH.md "
+        "(Phase 0)."
     )
 
 
+def run():
+    if not api_reachable():
+        print(OFFLINE_HINT)
+        return
+
+    entries = [("Run all lessons in order", run_all)]
+    entries += [
+        # The default argument binds this loop's lesson; without it every
+        # entry would close over the last one.
+        (f"Lesson {lesson['number']}: {lesson['title']}", lambda chosen=lesson: run_lesson(chosen))
+        for lesson in LESSONS
+    ]
+
+    console.run_menu(
+        "Guided lessons: your local model's sampling settings",
+        entries,
+        subtitle=f"{len(LESSONS)} lessons, run against your actual Qwen model",
+    )
+
+
+# Kept because main.py calls lessons.main().
+main = run
+
+
 if __name__ == "__main__":
-    main()
+    run()

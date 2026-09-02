@@ -1,21 +1,27 @@
 """
 Visualizations for phase1_gradient_descent.py.
 
-Reuses f() and f_prime() from that file (the actual math), just adds a
-version of the loop that records every step so we can plot it, instead of
-only printing it.
+Reuses the real gradient_descent() from that file - it already returns the
+list of x values it visited, so there's nothing to re-implement here. This
+file only turns that trajectory into pictures.
 
-Produces two PNGs in this folder:
+Produces two PNGs next to this script:
   - gradient_descent_paths.png        the "ball rolling down the bowl" view
   - gradient_descent_convergence.png  x (and distance-to-minimum) vs step
 """
 
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")  # writing files, not opening windows
 import matplotlib.pyplot as plt
 import numpy as np
 
-from phase1_gradient_descent import f, f_prime
+from phase1_gradient_descent import MINIMUM, f, gradient_descent
 
-TRUE_MINIMUM = 3.0
+# Save next to this file, not wherever the program happened to be started
+# from - main.py can be launched from anywhere.
+OUT_DIR = Path(__file__).parent
 
 SCENARIOS = [
     ("lr = 0.1  (well-behaved)", 0.0, 0.1, 15),
@@ -24,15 +30,11 @@ SCENARIOS = [
 ]
 
 
-def gradient_descent_history(start_x, learning_rate, steps):
-    """Same algorithm as gradient_descent() in phase1_gradient_descent.py,
-    but returns the list of x-values visited instead of printing them."""
-    x = start_x
-    history = [x]
-    for _ in range(steps):
-        x = x - learning_rate * f_prime(x)
-        history.append(x)
-    return history
+def save(fig, filename):
+    path = OUT_DIR / filename
+    fig.savefig(path, dpi=130)
+    plt.close(fig)  # a menu can run this repeatedly; don't leak figures
+    print(f"saved {path}")
 
 
 def plot_paths(all_histories):
@@ -41,8 +43,8 @@ def plot_paths(all_histories):
     for ax, (label, history) in zip(axes, all_histories):
         # Draw the actual curve f(x) = (x-3)^2 across whatever range this
         # particular run visited, with a little padding.
-        lo = min(min(history), TRUE_MINIMUM) - 1
-        hi = max(max(history), TRUE_MINIMUM) + 1
+        lo = min(min(history), MINIMUM) - 1
+        hi = max(max(history), MINIMUM) + 1
         xs = np.linspace(lo, hi, 300)
         ax.plot(xs, f(xs), color="lightgray", linewidth=2, zorder=1)
 
@@ -50,8 +52,8 @@ def plot_paths(all_histories):
         ys = [f(x) for x in history]
         ax.plot(history, ys, "o-", color="crimson", markersize=4, linewidth=1, zorder=2)
         ax.scatter([history[0]], [f(history[0])], color="black", zorder=3, label="start")
-        ax.scatter([TRUE_MINIMUM], [f(TRUE_MINIMUM)], color="green", marker="*",
-                   s=150, zorder=3, label="true minimum (x=3)")
+        ax.scatter([MINIMUM], [f(MINIMUM)], color="green", marker="*",
+                   s=150, zorder=3, label=f"true minimum (x={MINIMUM:.0f})")
 
         ax.set_title(label, fontsize=10)
         ax.set_xlabel("x")
@@ -60,9 +62,7 @@ def plot_paths(all_histories):
 
     fig.suptitle("Gradient descent: the path taken across the loss curve", fontsize=13)
     fig.tight_layout()
-    out = "gradient_descent_paths.png"
-    fig.savefig(out, dpi=130)
-    print(f"saved {out}")
+    save(fig, "gradient_descent_paths.png")
 
 
 def plot_convergence(all_histories):
@@ -72,10 +72,10 @@ def plot_convergence(all_histories):
         steps = list(range(len(history)))
         ax1.plot(steps, history, "o-", markersize=3, label=label)
 
-        distance = [abs(x - TRUE_MINIMUM) for x in history]
+        distance = [abs(x - MINIMUM) for x in history]
         ax2.plot(steps, distance, "o-", markersize=3, label=label)
 
-    ax1.axhline(TRUE_MINIMUM, color="green", linestyle="--", linewidth=1, label="true minimum")
+    ax1.axhline(MINIMUM, color="green", linestyle="--", linewidth=1, label="true minimum")
     ax1.set_xlabel("step")
     ax1.set_ylabel("x")
     ax1.set_title("x over time")
@@ -83,23 +83,20 @@ def plot_convergence(all_histories):
 
     ax2.set_yscale("log")
     ax2.set_xlabel("step")
-    ax2.set_ylabel("|x - 3|  (log scale)")
+    ax2.set_ylabel(f"|x - {MINIMUM:.0f}|  (log scale)")
     ax2.set_title("distance from the true minimum")
     ax2.legend(fontsize=8)
 
     fig.suptitle("Convergence, crawling, and divergence - same algorithm, different learning rate", fontsize=12)
     fig.tight_layout()
-    out = "gradient_descent_convergence.png"
-    fig.savefig(out, dpi=130)
-    print(f"saved {out}")
+    save(fig, "gradient_descent_convergence.png")
 
 
 def run():
-    all_histories = []
-    for label, start_x, lr, steps in SCENARIOS:
-        history = gradient_descent_history(start_x, lr, steps)
-        all_histories.append((label, history))
-
+    all_histories = [
+        (label, gradient_descent(start_x, lr, steps, verbose=False))
+        for label, start_x, lr, steps in SCENARIOS
+    ]
     plot_paths(all_histories)
     plot_convergence(all_histories)
 

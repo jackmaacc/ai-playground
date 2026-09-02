@@ -10,6 +10,7 @@ of separate scripts you have to remember to run individually:
   - Guided lessons on sampling settings, run against your real Qwen model
     (lessons.py)
   - Free-play model playground             (model_playground.py)
+  - The same thing in a browser            (webui.py)
 
 Each topic is still a standalone script too - main.py just imports and
 calls into them, it doesn't duplicate their logic. Run any of them
@@ -18,90 +19,102 @@ directly if you only want that one thing.
 Run with: python main.py
 """
 
-import sys
+from pathlib import Path
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+import console
 
-import phase1_gradient_descent as gradient_descent
-import phase1_interactive as linear_regression
+console.use_utf8_output()
+
 import model_playground
+import phase1_gradient_descent
+import phase1_interactive
+
+# The web UI needs gradio, which lives in text-generation-webui's
+# environment rather than the plain system Python this usually runs on.
+WEBUI_PYTHON = Path(r"C:\Users\jackm\ai-playground\chat-llm\installer_files\env\python.exe")
+
+
+def generate_gradient_descent_plots():
+    # Imported here rather than at the top so that starting the program
+    # doesn't pay for matplotlib unless you actually ask for a plot.
+    import phase1_gradient_descent_viz
+
+    phase1_gradient_descent_viz.run()
+
+
+def generate_linear_regression_plots():
+    import phase1_linear_regression_viz
+
+    phase1_linear_regression_viz.run()
+
+
+def generate_all_plots():
+    generate_gradient_descent_plots()
+    generate_linear_regression_plots()
 
 
 def run_visualizations():
-    print("\n" + "=" * 50)
-    print("Generate visualizations (saves PNGs into learning/)")
-    print("=" * 50)
-    print("1) Gradient descent paths + convergence")
-    print("2) Linear regression fit + loss curve")
-    print("3) Both")
-    print("4) Back")
-    choice = input("choose (1-4): ").strip()
-
-    if choice in ("1", "3"):
-        import phase1_gradient_descent_viz
-        phase1_gradient_descent_viz.run()
-    if choice in ("2", "3"):
-        import phase1_linear_regression_viz
-        phase1_linear_regression_viz.run()
-    if choice not in ("1", "2", "3", "4"):
-        print("Not a valid option, try again.")
+    console.run_menu(
+        "Generate visualizations (PNGs saved next to the scripts)",
+        [
+            ("Gradient descent paths + convergence", generate_gradient_descent_plots),
+            ("Linear regression fit + loss curve", generate_linear_regression_plots),
+            ("Both", generate_all_plots),
+        ],
+    )
 
 
-def run_llm_playground():
+def run_guided_lessons():
+    import lessons
+
+    lessons.run()
+
+
+def run_llm_menu():
     if not model_playground.api_reachable():
-        print("\nCan't reach the model API at http://127.0.0.1:5000 - is")
-        print("text-generation-webui running? (start_windows.bat in chat-llm/)")
-        print("The rest of the program works fine without it; only the LLM")
-        print("options need the model running.")
+        print(f"\n{model_playground.OFFLINE_HINT}")
+        print("\nEverything else in this program works without it - only the")
+        print("LLM options need the model running.")
         return
 
-    print("\n" + "=" * 50)
-    print("Real Qwen model - guided lessons or free play")
-    print("=" * 50)
-    print("1) Guided lessons (structured, teaches you the settings one by one)")
-    print("2) Free-play playground (chat, compare, adjust, explain)")
-    print("3) Back")
-    choice = input("choose (1-3): ").strip()
+    console.run_menu(
+        "Real Qwen model - guided lessons or free play",
+        [
+            ("Guided lessons (teaches the settings one at a time)", run_guided_lessons),
+            ("Free-play playground (chat, compare, adjust, explain)", model_playground.run),
+        ],
+    )
 
-    if choice == "1":
-        import lessons
-        lessons.main()
-    elif choice == "2":
-        model_playground.run()
-    elif choice == "3":
+
+def launch_web_ui():
+    """Start the browser version, if this interpreter can run it."""
+    try:
+        import webui
+    except ImportError:
+        # Almost always a missing gradio: the system Python doesn't have
+        # it, text-generation-webui's environment does.
+        print("\nThe web UI needs gradio, which isn't installed for this Python.")
+        print("Run it with text-generation-webui's interpreter instead:\n")
+        print(f'  & "{WEBUI_PYTHON}" webui.py')
         return
-    else:
-        print("Not a valid option, try again.")
 
-
-def main_menu():
-    print("\n" + "=" * 55)
-    print("AI/ML Learning Path - interactive menu")
-    print("(see LEARNING_PATH.md for the full roadmap)")
-    print("=" * 55)
-    print("1) Gradient descent basics           (Phase 0/1 foundations)")
-    print("2) Linear regression trainer         (Phase 1 project)")
-    print("3) Generate visualizations (PNGs)    (Phase 1)")
-    print("4) LLM lessons / playground - real Qwen model  (Phase 0/2)")
-    print("5) Quit")
+    print("\nStarting the web UI - press Ctrl+C here to stop it.")
+    webui.launch()
 
 
 def main():
-    while True:
-        main_menu()
-        choice = input("choose (1-5): ").strip()
-        if choice == "1":
-            gradient_descent.run()
-        elif choice == "2":
-            linear_regression.run()
-        elif choice == "3":
-            run_visualizations()
-        elif choice == "4":
-            run_llm_playground()
-        elif choice == "5":
-            break
-        else:
-            print("Not a valid option, try again.")
+    console.run_menu(
+        "AI/ML Learning Path - interactive menu",
+        [
+            ("Gradient descent basics           (Phase 0/1 foundations)", phase1_gradient_descent.run),
+            ("Linear regression trainer         (Phase 1 project)", phase1_interactive.run),
+            ("Generate visualizations (PNGs)    (Phase 1)", run_visualizations),
+            ("LLM lessons / playground          (Phase 0/2)", run_llm_menu),
+            ("Open the web UI in a browser", launch_web_ui),
+        ],
+        back_label="Quit",
+        subtitle="(see LEARNING_PATH.md for the full roadmap)",
+    )
 
 
 if __name__ == "__main__":

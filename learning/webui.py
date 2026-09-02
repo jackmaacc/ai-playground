@@ -2,6 +2,12 @@
 Web UI for the whole learning path - same idea as main.py's menu, but as
 a browser interface instead of typing numbers into a terminal.
 
+Every tab here is a front-end for logic that lives elsewhere: the maths
+comes from phase1_gradient_descent.py and phase1_linear_regression.py,
+the model calls from model_playground.py, the lesson text from lessons.py.
+Nothing is reimplemented, so the browser and the terminal always teach the
+same thing.
+
 Runs on the chat-llm venv (already has gradio + requests installed for
 text-generation-webui itself). Launch with:
 
@@ -13,24 +19,49 @@ Opens at http://127.0.0.1:7862
 import matplotlib
 matplotlib.use("Agg")  # no GUI backend needed, we're handing figures to gradio
 import matplotlib.pyplot as plt
+import numpy as np
 import gradio as gr
 
-from model_playground import call_model, EXPLANATIONS, api_reachable
 from lessons import LESSONS
-from phase1_gradient_descent import f, f_prime
-from phase1_linear_regression import hours as lr_hours, scores as lr_scores, predict as lr_predict, mse_loss, gradients as lr_gradients, true_m, true_b
+from model_playground import (
+    EXPLANATIONS,
+    OFFLINE_HINT,
+    ModelError,
+    api_reachable,
+    call_model,
+)
+from phase1_gradient_descent import MINIMUM, f
+from phase1_gradient_descent import diagnose as diagnose_descent
+from phase1_gradient_descent import gradient_descent
+from phase1_linear_regression import closed_form_solution, hours, predict, scores
+from phase1_linear_regression import diagnose as diagnose_regression
+from phase1_linear_regression import train, true_b, true_m
+
+PORT = 7862
+
+
+def generate(prompt, overrides):
+    """One model call, with failures turned into text the page can show.
+
+    Without this an unreachable server throws a raw exception into
+    Gradio's error box mid-lesson; this explains what to do instead.
+    """
+    if not prompt.strip():
+        return "Type a prompt first."
+    try:
+        reply, _ = call_model(prompt, overrides)
+    except ModelError as error:
+        return f"[{error}]"
+    return reply
 
 
 # ---------------------------------------------------------------- LLM tab
 
 def do_generate(prompt, temperature, top_p, top_k, repetition_penalty, max_tokens):
-    if not prompt.strip():
-        return "Type a prompt first."
-    reply, _ = call_model(prompt, {
+    return generate(prompt, {
         "temperature": temperature, "top_p": top_p, "top_k": int(top_k),
         "repetition_penalty": repetition_penalty, "max_tokens": int(max_tokens),
     })
-    return reply
 
 
 SETTINGS_HELP = "\n\n".join(f"**{k}**: {v}" for k, v in EXPLANATIONS.items())
@@ -39,102 +70,95 @@ SETTINGS_HELP = "\n\n".join(f"**{k}**: {v}" for k, v in EXPLANATIONS.items())
 # ---------------------------------------------------------------- Compare tab
 
 def do_compare(prompt, ta, pa, ka, ra, tb, pb, kb, rb):
-    if not prompt.strip():
-        return "Type a prompt first.", ""
-    reply_a, _ = call_model(prompt, {"temperature": ta, "top_p": pa, "top_k": int(ka), "repetition_penalty": ra, "max_tokens": 150})
-    reply_b, _ = call_model(prompt, {"temperature": tb, "top_p": pb, "top_k": int(kb), "repetition_penalty": rb, "max_tokens": 150})
-    return reply_a, reply_b
+    setting_a = {"temperature": ta, "top_p": pa, "top_k": int(ka), "repetition_penalty": ra, "max_tokens": 150}
+    setting_b = {"temperature": tb, "top_p": pb, "top_k": int(kb), "repetition_penalty": rb, "max_tokens": 150}
+    return generate(prompt, setting_a), generate(prompt, setting_b)
 
 
 # ---------------------------------------------------------------- Lessons tab
 
-LESSON_TITLES = [f"{l['number']}. {l['title']}" for l in LESSONS]
+LESSON_TITLES = [f"{lesson['number']}. {lesson['title']}" for lesson in LESSONS]
+
+
+def _lesson_for(choice):
+    return LESSONS[LESSON_TITLES.index(choice)]
 
 
 def lesson_concept(choice):
-    lesson = LESSONS[LESSON_TITLES.index(choice)]
+    lesson = _lesson_for(choice)
     return f"### {lesson['title']}\n\n{lesson['concept']}\n\n**Prompt:** \"{lesson['prompt']}\""
 
 
 def run_lesson_experiment(choice):
-    lesson = LESSONS[LESSON_TITLES.index(choice)]
-    reply_a, _ = call_model(lesson["prompt"], lesson["setting_a"])
-    reply_b, _ = call_model(lesson["prompt"], lesson["setting_b"])
+    lesson = _lesson_for(choice)
     label_a = ", ".join(f"{k}={v}" for k, v in lesson["setting_a"].items())
     label_b = ", ".join(f"{k}={v}" for k, v in lesson["setting_b"].items())
+    reply_a = generate(lesson["prompt"], lesson["setting_a"])
+    reply_b = generate(lesson["prompt"], lesson["setting_b"])
     return f"**A** ({label_a})\n\n{reply_a}", f"**B** ({label_b})\n\n{reply_b}"
 
 
 def reveal_lesson(choice):
-    lesson = LESSONS[LESSON_TITLES.index(choice)]
-    return lesson["reveal"]
+    return _lesson_for(choice)["reveal"]
 
 
 # ---------------------------------------------------------------- Gradient descent tab
 
 def run_gradient_descent(start_x, learning_rate, steps):
-    plt.close("all")  # each Run click makes a new figure; clean up past ones
-    x = start_x
-    xs_hist = [x]
-    for _ in range(int(steps)):
-        x = x - learning_rate * f_prime(x)
-        xs_hist.append(x)
+    # The algorithm itself lives in phase1_gradient_descent.py - this only
+    # draws the trajectory it hands back.
+    history = gradient_descent(start_x, learning_rate, int(steps), verbose=False)
 
     fig, ax = plt.subplots(figsize=(6, 4.5))
-    lo = min(min(xs_hist), 3) - 1
-    hi = max(max(xs_hist), 3) + 1
-    import numpy as np
+    # A diverged run spans astronomical values; clip the drawing window to
+    # the interesting region so the curve doesn't collapse to a flat line.
+    finite = [x for x in history if abs(x) < 1e6]
+    lo = min(min(finite, default=MINIMUM), MINIMUM) - 1
+    hi = max(max(finite, default=MINIMUM), MINIMUM) + 1
     curve_x = np.linspace(lo, hi, 300)
     ax.plot(curve_x, f(curve_x), color="lightgray", linewidth=2)
-    ax.plot(xs_hist, [f(v) for v in xs_hist], "o-", color="crimson", markersize=4)
-    ax.scatter([3], [f(3)], color="green", marker="*", s=150, zorder=3, label="true minimum")
+    ax.plot(history, [f(x) for x in history], "o-", color="crimson", markersize=4)
+    ax.scatter([MINIMUM], [f(MINIMUM)], color="green", marker="*", s=150, zorder=3,
+               label="true minimum")
+    ax.set_xlim(lo, hi)
     ax.set_xlabel("x")
     ax.set_ylabel("f(x)")
     ax.legend()
     fig.tight_layout()
 
-    final_x = xs_hist[-1]
-    distance = abs(final_x - 3)
-    if distance != distance:
-        verdict = "Diverged to NaN - learning rate too big, the update blew up."
-    elif distance > 0.5:
-        verdict = f"Still {distance:.3f} from the true minimum after {int(steps)} steps - try a different learning rate or more steps."
-    else:
-        verdict = f"Converged: within {distance:.4f} of the true minimum (x=3)."
-
-    return fig, f"Final x = {final_x:.5f}\n{verdict}"
+    summary = f"Final x = {history[-1]:.5f}\n\n{diagnose_descent(history)}"
+    return fig, summary
 
 
 # ---------------------------------------------------------------- Linear regression tab
 
 def run_linear_regression(learning_rate, steps):
-    plt.close("all")  # each Run click makes a new figure; clean up past ones
-    m, b = 0.0, 0.0
-    loss_hist = []
-    for _ in range(int(steps)):
-        loss_hist.append(mse_loss(m, b))
-        gm, gb = lr_gradients(m, b)
-        m -= learning_rate * gm
-        b -= learning_rate * gb
+    history, m, b = train(learning_rate, int(steps), verbose=False)
 
-    import numpy as np
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5))
-    ax1.scatter(lr_hours, lr_scores, color="black", zorder=3, label="real data")
+    ax1.scatter(hours, scores, color="black", zorder=3, label="real data")
     xs = np.linspace(0, 10, 100)
-    ax1.plot(xs, lr_predict(xs, m, b), color="crimson", linewidth=2, label="learned fit")
+    ax1.plot(xs, predict(xs, m, b), color="crimson", linewidth=2, label="learned fit")
+
+    best_m, best_b = closed_form_solution()
+    ax1.plot(xs, predict(xs, best_m, best_b), color="green", linestyle="--",
+             linewidth=1.5, label="best possible")
     ax1.set_xlabel("hours studied")
     ax1.set_ylabel("exam score")
     ax1.legend()
 
-    ax2.plot(range(len(loss_hist)), loss_hist, color="crimson")
+    losses = [row[3] for row in history]
+    ax2.plot(range(len(losses)), losses, color="crimson")
     ax2.set_xlabel("step")
     ax2.set_ylabel("loss (MSE)")
     fig.tight_layout()
 
     summary = (
-        f"Learned: score = {m:.3f} * hours + {b:.3f}\n"
-        f"Truth:   score = {true_m} * hours + {true_b}\n"
-        f"Final loss: {loss_hist[-1]:.3f} (started at {loss_hist[0]:.1f})"
+        f"Learned:  score = {m:.3f} * hours + {b:.3f}\n"
+        f"Best possible: score = {best_m:.3f} * hours + {best_b:.3f}\n"
+        f"Truth:    score = {true_m} * hours + {true_b}\n"
+        f"Final loss: {losses[-1]:.3f} (started at {losses[0]:.1f})\n\n"
+        f"{diagnose_regression(history)}"
     )
     return fig, summary
 
@@ -185,6 +209,7 @@ with gr.Blocks(title="AI Learning Path") as demo:
         lesson_pick = gr.Dropdown(LESSON_TITLES, value=LESSON_TITLES[0], label="Lesson")
         concept_md = gr.Markdown(lesson_concept(LESSON_TITLES[0]))
         lesson_pick.change(lesson_concept, lesson_pick, concept_md)
+        gr.Markdown("_Predict what will differ before you press Reveal - being wrong is the useful bit._")
         run_btn = gr.Button("Run the experiment", variant="primary")
         with gr.Row():
             lesson_a = gr.Markdown()
@@ -202,7 +227,7 @@ with gr.Blocks(title="AI Learning Path") as demo:
             gd_steps = gr.Slider(1, 100, value=15, step=1, label="steps")
         gd_btn = gr.Button("Run", variant="primary")
         gd_plot = gr.Plot()
-        gd_summary = gr.Textbox(label="Result", lines=2)
+        gd_summary = gr.Textbox(label="Result", lines=4)
         gd_btn.click(run_gradient_descent, [gd_start, gd_lr, gd_steps], [gd_plot, gd_summary])
 
     with gr.Tab("Linear Regression (toy)"):
@@ -212,13 +237,17 @@ with gr.Blocks(title="AI Learning Path") as demo:
             lrg_steps = gr.Slider(10, 2000, value=500, step=10, label="steps")
         lrg_btn = gr.Button("Run", variant="primary")
         lrg_plot = gr.Plot()
-        lrg_summary = gr.Textbox(label="Result", lines=4)
+        lrg_summary = gr.Textbox(label="Result", lines=7)
         lrg_btn.click(run_linear_regression, [lrg_lr, lrg_steps], [lrg_plot, lrg_summary])
 
 
-if __name__ == "__main__":
+def launch(open_browser=True):
     if not api_reachable():
-        print("Warning: can't reach the model API at http://127.0.0.1:5000 -")
-        print("the Chat/Compare/Lessons tabs won't work until text-generation-webui")
-        print("is running. The Gradient Descent and Linear Regression tabs work regardless.")
-    demo.launch(server_name="127.0.0.1", server_port=7862, inbrowser=True)
+        print(f"Warning: {OFFLINE_HINT}")
+        print("The Chat/Compare/Lessons tabs won't work until it's running.")
+        print("The Gradient Descent and Linear Regression tabs work regardless.")
+    demo.launch(server_name="127.0.0.1", server_port=PORT, inbrowser=open_browser)
+
+
+if __name__ == "__main__":
+    launch()
