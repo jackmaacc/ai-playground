@@ -1,0 +1,18 @@
+# Web UI: learning/webui.py, the browser version of the learning program.
+#
+# Which Python runs this: NOT the plain system Python, which has no gradio
+# here. Both bundled apps ship an interpreter that already has everything in
+# this file, so nothing needs installing - just run webui.py with one of:
+#
+#     chat-llm/installer_files/env/python.exe    (gradio 4.37.2, custom build)
+#     image-gen/venv/Scripts/python.exe          (gradio 4.40.0)
+#
+# or let the app manager pick one:  python learning/main.py  ->  App manager.
+#
+# Only install this file into a fresh environment of your own if you want the
+# web UI to run outside those bundled interpreters:
+#     python -m pip install -r requirements-web.txt
+
+-r requirements-plot.txt
+gradio>=4.36,<5        # seen: 4.37.2 and 4.40.0. Uses gr.State, generator streaming and cancels=,
+                       # which changed in gradio 5 - stay on 4.x until webui.py is checked against 5

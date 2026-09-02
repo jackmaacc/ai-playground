@@ -1,0 +1,14 @@
+# Development and testing.
+#
+# The test suite is written with the standard library's unittest, so it runs
+# with NO extra installs:
+#
+#     python -m unittest discover -s learning/tests -t learning
+#
+# pytest is optional. It collects the same tests unchanged and gives nicer
+# output. It is not installed in any interpreter on this machine at the time
+# of writing. If you want it:
+#     python -m pip install -r requirements-dev.txt
+
+-r requirements-plot.txt
+pytest>=8,<9           # optional runner; the suite does not depend on it

@@ -1,0 +1,8 @@
+# Plotting: the *_viz.py scripts and the overfitting curves (PNG output).
+#
+# Which Python runs this: the system Python already has matplotlib here.
+# Install with:   python -m pip install -r requirements-plot.txt
+# (This pulls in the core file too, so one command sets up both.)
+
+-r requirements.txt
+matplotlib>=3.8,<4     # seen: 3.11.1. Only pyplot basics; the Agg backend is forced, no GUI needed

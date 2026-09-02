@@ -1,0 +1,12 @@
+# Core: the terminal learning program, the app manager, and the model client.
+#
+# Which Python runs this: the plain system Python (3.13 was used here) already
+# has all of these. Install with:   python -m pip install -r requirements.txt
+#
+# Ranges are deliberately wide but capped at the next major version, because
+# that is where APIs actually break. Versions seen working on this machine are
+# noted so a future "it stopped working" has a known-good reference.
+
+numpy>=2.0,<3          # seen: 2.2.6 and 2.5.2. Uses default_rng, vander, lstsq (numpy 2 APIs)
+requests>=2.31,<3      # seen: 2.32.3 and 2.34.2. Needs streaming via iter_lines
+psutil>=5.9,<8         # seen: 7.2.2. Process identity checks: oneshot, net_connections, wait_procs
