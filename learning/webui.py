@@ -8,12 +8,16 @@ the model calls from model_playground.py, the lesson text from lessons.py.
 Nothing is reimplemented, so the browser and the terminal always teach the
 same thing.
 
-Runs on the chat-llm venv (already has gradio + requests installed for
-text-generation-webui itself). Launch with:
+Needs an interpreter with gradio. The plain system Python usually lacks
+it, while both bundled apps ship it, so the easiest ways to start this are:
 
-    C:\\Users\\jackm\\ai-playground\\chat-llm\\installer_files\\env\\python.exe webui.py
+    python main.py  ->  "App manager"  ->  Start an app  ->  learning web UI
 
-Opens at http://127.0.0.1:7862
+or directly, using whichever bundled interpreter has gradio:
+
+    <repo>/chat-llm/installer_files/env/python.exe learning/webui.py
+
+Opens on the configured port (127.0.0.1:7862 by default - see config.py).
 """
 
 import matplotlib
@@ -26,10 +30,13 @@ from lessons import LESSONS
 from model_playground import (
     EXPLANATIONS,
     OFFLINE_HINT,
+    SETTINGS_SPEC,
     ModelError,
     api_reachable,
     call_model,
 )
+import generation as gen
+import model_playground as mp
 from phase1_gradient_descent import MINIMUM, f
 from phase1_gradient_descent import diagnose as diagnose_descent
 from phase1_gradient_descent import gradient_descent
@@ -47,7 +54,11 @@ from phase1_linear_regression import (
 from phase1_overfitting import best_result, predict_polynomial, sweep
 from phase1_overfitting import diagnose as diagnose_overfitting
 
-PORT = 7862
+import config
+
+# Kept as a module constant for backward compatibility, but the value now
+# comes from one place and can be overridden with AIPLAY_LEARNING_WEB_PORT.
+PORT = config.LEARNING_WEB_PORT
 
 
 def generate(prompt, overrides):
@@ -72,6 +83,87 @@ def do_generate(prompt, temperature, top_p, top_k, repetition_penalty, max_token
         "temperature": temperature, "top_p": top_p, "top_k": int(top_k),
         "repetition_penalty": repetition_penalty, "max_tokens": int(max_tokens),
     })
+
+
+# The generation currently in flight, so the Stop button can reach it.
+# One slot, because model_playground refuses to run two at once anyway.
+_active = {"token": None}
+
+CONTEXT_NOTE = (
+    "The whole conversation is re-sent to the model on every turn, so the "
+    "context grows with everything said so far, not just your last message. "
+    "If replies start repeating, clearing the conversation gives the model a "
+    "fresh start - repetitive history in the prompt is one thing that can "
+    "make further repetition more likely, though a live experiment is the "
+    "only way to know whether that is what happened in a given case."
+)
+
+
+def context_summary(history):
+    """An ESTIMATE of context size from the text itself.
+
+    Streamed replies do not report exact token counts, so this uses the
+    usual rough rule of about four characters per token and says so.
+    """
+    chars = sum(len(message.get("content", "")) for message in history)
+    estimate = chars // 4
+    usage = gen.context_usage(estimate, config.MODEL_CONTEXT_TOKENS)
+    return f"~{usage.used} of {usage.limit} tokens (estimate, ~4 chars/token, {usage.fraction:.0%})"
+
+
+def chat_stream(prompt, history, temperature, top_p, top_k, repetition_penalty, max_tokens):
+    """Generate a reply piece by piece, keeping the conversation.
+
+    Yields (history, reply_text, notes, context). Notes carry the honest
+    verdict on the reply: finished, cut off, cancelled, or repeating.
+    """
+    history = list(history or [])
+    if not prompt.strip():
+        yield history, "", "Type a prompt first.", context_summary(history)
+        return
+
+    messages = history + [{"role": "user", "content": prompt}]
+    overrides = {
+        "temperature": temperature, "top_p": top_p, "top_k": int(top_k),
+        "repetition_penalty": repetition_penalty, "max_tokens": int(max_tokens),
+    }
+    token = mp.CancelToken()
+    _active["token"] = token
+
+    try:
+        for text, final in mp.stream_generation(messages=messages, overrides=overrides,
+                                                cancel_token=token):
+            if final is None:
+                yield history, text, "generating... (press Stop to cancel)", context_summary(messages)
+                continue
+            new_history = messages + [{"role": "assistant", "content": final.text}]
+            notes = gen.review(final, config.MODEL_CONTEXT_TOKENS)
+            summary = "\n\n".join(notes) if notes else "Finished normally (the model chose to stop)."
+            yield new_history, final.text, summary, context_summary(new_history)
+    except ModelError as error:
+        yield history, "", f"[{error}]", context_summary(history)
+    finally:
+        _active["token"] = None
+
+
+def stop_generation():
+    """Cancel the reply in flight and report what the server confirmed.
+
+    Never claims more than it knows: the stream is closed for certain;
+    whether the server stopped working is asked, not assumed.
+    """
+    token = _active.get("token")
+    if token is None:
+        # Nothing streaming on our side - still worth asking the server,
+        # in case a previous stream detached before the token was cleared.
+        endpoint = mp.request_server_stop()
+        return f"Nothing is generating here. Asked the server anyway: {endpoint}."
+    outcome = mp.cancel_generation(token)
+    return f"Stopped. {outcome.detail} (server stop endpoint: {outcome.stop_endpoint})"
+
+
+def clear_conversation():
+    return [], "", "Conversation cleared. The model starts the next reply with no history.", context_summary([])
 
 
 SETTINGS_HELP = "\n\n".join(f"**{k}**: {v}" for k, v in EXPLANATIONS.items())
@@ -241,17 +333,40 @@ with gr.Blocks(title="AI Learning Path") as demo:
     gr.Markdown("# AI Learning Path\nSee `LEARNING_PATH.md` for the full roadmap.")
 
     with gr.Tab("Chat with Qwen"):
-        gr.Markdown("Play with sampling settings against your real local model.")
+        gr.Markdown("Play with sampling settings against your real local model. "
+                    "Replies stream in; **Stop** cancels the server's work, not just the display.")
+        history_state = gr.State([])
         prompt_in = gr.Textbox(label="Prompt", lines=2)
+        # Slider defaults come from the same table the terminal uses, so the
+        # two can never quietly disagree.
+        defaults = {key: spec["default"] for key, spec in SETTINGS_SPEC.items()}
         with gr.Row():
-            temp = gr.Slider(0.05, 2.0, value=0.7, step=0.05, label="temperature")
-            top_p = gr.Slider(0.05, 1.0, value=0.9, step=0.05, label="top_p")
-            top_k = gr.Slider(0, 100, value=20, step=1, label="top_k")
-            rep_pen = gr.Slider(1.0, 2.0, value=1.1, step=0.05, label="repetition_penalty")
-            max_tok = gr.Slider(16, 500, value=150, step=16, label="max_tokens")
-        gen_btn = gr.Button("Generate", variant="primary")
+            temp = gr.Slider(0.05, 2.0, value=defaults["temperature"], step=0.05, label="temperature")
+            top_p = gr.Slider(0.05, 1.0, value=defaults["top_p"], step=0.05, label="top_p")
+            top_k = gr.Slider(0, 100, value=defaults["top_k"], step=1, label="top_k")
+            rep_pen = gr.Slider(1.0, 2.0, value=defaults["repetition_penalty"], step=0.05,
+                                label="repetition_penalty")
+            max_tok = gr.Slider(16, 500, value=defaults["max_tokens"], step=16, label="max_tokens")
+        with gr.Row():
+            gen_btn = gr.Button("Generate", variant="primary")
+            stop_btn = gr.Button("Stop", variant="stop")
+            clear_btn = gr.Button("Clear conversation")
         output = gr.Textbox(label="Response", lines=6)
-        gen_btn.click(do_generate, [prompt_in, temp, top_p, top_k, rep_pen, max_tok], output)
+        notes_box = gr.Textbox(label="What happened", lines=3)
+        context_box = gr.Textbox(label="Context size", value=context_summary([]), interactive=False)
+        with gr.Accordion("Why context size matters", open=False):
+            gr.Markdown(CONTEXT_NOTE)
+
+        gen_event = gen_btn.click(
+            chat_stream,
+            [prompt_in, history_state, temp, top_p, top_k, rep_pen, max_tok],
+            [history_state, output, notes_box, context_box],
+        )
+        # cancels= stops the browser waiting; stop_generation closes the
+        # connection and asks the server, so the GPU stops too.
+        stop_btn.click(stop_generation, None, notes_box, cancels=[gen_event])
+        clear_btn.click(clear_conversation, None,
+                        [history_state, output, notes_box, context_box])
         with gr.Accordion("What do these settings mean?", open=False):
             gr.Markdown(SETTINGS_HELP)
 
@@ -338,7 +453,10 @@ def launch(open_browser=True):
         print(f"Warning: {OFFLINE_HINT}")
         print("The Chat/Compare/Lessons tabs won't work until it's running.")
         print("The Gradient Descent and Linear Regression tabs work regardless.")
-    demo.launch(server_name="127.0.0.1", server_port=PORT, inbrowser=open_browser)
+    warning = config.public_bind_warning()
+    if warning:
+        print(warning)
+    demo.launch(server_name=config.BIND_HOST, server_port=PORT, inbrowser=open_browser)
 
 
 if __name__ == "__main__":

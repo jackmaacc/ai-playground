@@ -14,7 +14,7 @@ Run with: python lessons.py
 """
 
 import console
-from model_playground import ModelError, OFFLINE_HINT, api_reachable, call_model
+from model_playground import ModelError, OFFLINE_HINT, api_reachable, generate_once
 
 console.use_utf8_output()
 
@@ -32,12 +32,17 @@ def call_model_samples(prompt, settings, n=SAMPLES):
     differ as much as two different settings do. Repeating gives you the
     spread, which is the only thing that makes a comparison meaningful.
     """
-    return [call_model(prompt, settings)[0] for _ in range(n)]
+    return [generate_once(prompt, settings) for _ in range(n)]
 
 
 def show_samples(label, replies):
     for index, reply in enumerate(replies, start=1):
-        print(f"\n--- {label}, run {index} of {len(replies)} ---\n{reply}")
+        print(f"\n--- {label}, run {index} of {len(replies)} ---\n{reply.text}")
+        if reply.truncated:
+            # A lesson comparing two settings is misleading if one sample
+            # was silently chopped at the token cap and the other was not.
+            print(f"    [!] cut off at the {reply.params.get('max_tokens')}-token "
+                  "limit - the model had not finished")
 
 
 LESSONS = [
